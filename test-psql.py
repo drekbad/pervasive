@@ -1,3 +1,6 @@
+# Create the file: nano test_psql_v2.py
+# Paste this code in:
+
 import socket
 import sys
 
@@ -6,8 +9,6 @@ def check_psql_blank(ip, port):
     get_version_packet = b"\x00\x00\x00\x34\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00"
     
     # Pervasive "Login" packet for user 'Master' with a blank password
-    # The 'Master' username (padded) is at offset 0x38
-    # The blank password (padded) is at offset 0x69
     login_packet = (
         b"\x00\x00\x00\xc0\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00"
         b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -24,37 +25,45 @@ def check_psql_blank(ip, port):
         b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
     )
 
+    s = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(5)
+        s.settimeout(15) # <-- Increased timeout
+        
+        print(f"[*] Connecting to {ip}:{port}...")
         s.connect((ip, port))
+        print("[+] Connection successful.")
         
         # Send Get Version
+        print("[*] Sending 'Get Version' packet...")
         s.send(get_version_packet)
-        s.recv(1024)
-        
+        version_response = s.recv(1024)
+        print(f"[*] Server version response: {version_response.hex()}")
+
         # Send Login
+        print("[*] Sending 'Login' packet for 'Master' (blank pass)...")
         s.send(login_packet)
-        response = s.recv(1024)
-        s.close()
+        login_response = s.recv(1024)
+        print(f"[*] Server login response: {login_response.hex()}")
         
-        # Check response for success
-        # A successful login with a blank password will return a response
-        # where the 4th byte (status code) is 0x00.
-        # A failed login (auth failure) is 0x16.
-        if response and len(response) > 4:
-            status_code = response[4]
+        if login_response and len(login_response) > 4:
+            status_code = login_response[4]
             if status_code == 0x00:
                 print(f"[+] SUCCESS: Logged in to {ip}:{port} as 'Master' with a BLANK password.")
             elif status_code == 0x16:
-                print(f"[-] FAILED: Login as 'Master' failed (auth error). Not vulnerable to blank pass.")
+                print(f"[-] FAILED: Login as 'Master' failed (auth error 0x16). Not vulnerable to blank pass.")
             else:
                 print(f"[?] UNKNOWN: Received unknown status code: {hex(status_code)}")
         else:
-            print("[?] FAILED: No valid response from server.")
+            print("[?] FAILED: Received no valid login response from server.")
             
+    except socket.timeout:
+        print(f"[!] ERROR: Connection to {ip}:{port} timed out (15s). Host is likely dropping packets or very slow.")
     except Exception as e:
-        print(f"[!] ERROR: Could not connect or send data to {ip}:{port}. Error: {e}")
+        print(f"[!] ERROR: An error occurred. {e}")
+    finally:
+        if s:
+            s.close()
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
